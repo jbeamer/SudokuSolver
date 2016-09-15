@@ -12,10 +12,10 @@ extern int g_nBranchEndpoitsFound;
 class CCell {
 public:
 	CCell();
-	
+
 	void
 	Init(int boardsize=9);
-	
+
 	bool
 	SetValue(int newvalue);
 
@@ -25,10 +25,10 @@ public:
 	bool
 	UpdateValue();
 
-	int 
+	int
 	NumPossible();
 
-	int 
+	int
 	GetNthPossibility(int n);
 
 	int  value;
@@ -43,35 +43,34 @@ public:
 //   cells, which are stored elsewhere
 class CGroup {
 public:
-	void 
+	void
 	Init (CCell* cellarray, int* cellIndexes, int type, int index /* 1 based */, int nBoardSize=9);
 
-	void 
+	void
 	SetValues(char *szValues);
-	
+
 	bool
 	ClearCouldBeFlags();
 
 	bool
 	UpdateValues();
 
-	void 
+	void
 	Print();
-	
-	void 
+
+	void
 	Print(char *buffer, int buffer_size);
 
-	void 
+	void
 	PrintCouldBeFlags();
 
-	int 
+	int
 	CurrentState();
 
-	// CCellGroup::HasActionablePair
+	// CCellGroup::BoxHasActionablePairOrTriad
 	// returns the third that it occurs in (1, 2, 3) or 0 for no pair
-	// misnamed -- could be an actionable threesome
 	int
-	HasActionablePair(int nNumber);
+	BoxHasActionablePairOrTriad(int nNumber);
 
 	// CCellGroup::ProcessPairInRowOrCol
 	// returns if a change was made
@@ -82,6 +81,13 @@ public:
 	DoStackedPairs();
 
 	int GetValue(int groupindex);
+
+	bool
+	ClearNumberInRow(int num, int row);
+
+	bool
+	ClearNumberInColumn(int num, int row);
+
 protected:
 	int		m_CellIndexes[9];
 	CCell*	m_CellArray;
@@ -96,7 +102,7 @@ public:
 	// CSudokuBoard::CSudokuBoard
 	CSudokuBoard(const char *desc, int nBoardSize=9);
 	~CSudokuBoard();
-	
+
 	void
 	operator= (CSudokuBoard* source);
 
@@ -112,7 +118,7 @@ public:
 	bool	IterateOnce();
 	void    PrintDivider();
 	void    PrintDivider(int which);
-private: 
+private:
 	CCell	m_cells[100];
 	CGroup	m_rows[9];
 	CGroup	m_cols[9];

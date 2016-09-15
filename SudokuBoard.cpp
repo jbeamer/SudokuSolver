@@ -384,30 +384,74 @@ CGroup::CurrentState()
 	return (bComplete ? STATE_SOLVED : STATE_INCOMPLETE);
 }
 
-// CCellGroup::HasActionablePair
-// returns the third that it occurs in (1, 2, 3) or 0 for no pair
-// misnamed -- could be an actionable threesome
+// CCellGroup::BoxHasActionablePairOrTriad
+// ---------------------------------------
+// For Box cell groups only.
+//
+// In a box, if a number shows up exclusively in a single row or column,
+// then we can clear couldbe flags in the rest of the row or column in
+// adjacent boxes.
+//
+// This function takes a single number to check for and sees if this is
+// a box for which we can apply such logic
+//
+// Returns nonzero index if a group is found:
+//   1, 2, 3 -- the row 1, 2, 3 that group is in
+//   4, 5, 6 -- the col 1, 2, 3 that group is in
 int
-CGroup::HasActionablePair(int nNumber)
+CGroup::BoxHasActionablePairOrTriad(int nNumber)
 {
-	int nPossible = 0;
-	int whatthird[9];
+	int nTimesSeen = 0;
+	int placesFound[3];
 
-	for (int cell=0; cell<m_nBoardSize; cell++)
+	// set observations to 0:
+	for (int i=0; i<3; i++) placesFound[i] = 0;
+
+	// first check: does this number show up as a possibility exactly 2 or 3 times?
+	for (int cell=0; cell<9; cell++)
 	{
 		if (m_CellArray[m_CellIndexes[cell]].couldbe[nNumber])
 		{
-			// save where this one is and keep track of how many times we've seen it
-			whatthird[nPossible++] = 1 + cell/3; // (1, 2, 3)
+			// we are done if we have already seen it 3 times, this is the fourth:
+			if (nTimesSeen >= 3) return 0;
+
+			// save where we saw it
+			placesFound[nTimesSeen] = cell;
+
+			// keep track of how many times we've seen it
+			nTimesSeen++;
 		}
 	}
+	if (nTimesSeen < 2)
+	{
+		// no, this is not actionable
+		return 0;
+	}
 
-	if ((nPossible == 2) && (whatthird[0] == whatthird[1]))
-		return (whatthird[0]);
+	int row1 = 1 + placesFound[0]/3; // (1, 2, 3)
+	int row2 = 1 + placesFound[1]/3; // (1, 2, 3)
+	int row3 = 1 + placesFound[2]/3; // (1, 2, 3)
+	int col1 = 1 + placesFound[0]%3; // (1, 2, 3)
+	int col2 = 1 + placesFound[1]%3; // (1, 2, 3)
+	int col3 = 1 + placesFound[2]%3; // (1, 2, 3)
 
-	if ((nPossible == 3) &&
-		((whatthird[0] == whatthird[1]) && (whatthird[0] == whatthird[2])))
-		return (whatthird[0]);
+	// second check: are these instances in the same row or column?
+	if (nTimesSeen == 2)
+	{
+		// possibility 1: 2 in same row
+		if (row1 == row2) return row1;
+
+		// possibility 2: 2 in same col
+		if (col1 == col2) return (col1 + 3);
+	}
+	if (nTimesSeen == 3)
+	{
+		// possibility 1: 2 in same row
+		if ((row1 == row2) && (row1 == row3)) return row1;
+
+		// possibility 2: 2 in same col
+		if ((col1 == col2) && (col1 == col3)) return (col1 + 3);
+	}
 
 	return 0;
 }
@@ -511,6 +555,37 @@ CGroup::DoStackedPairs()
 }
 
 
+bool
+CGroup::ClearNumberInRow(int num, int row)
+{
+	bool retVal = false;
+
+	for (int cell=row*3; cell<(row+1)*3; cell++)
+	{
+		if (m_CellArray[m_CellIndexes[cell]].ClearCouldBeFlag(num))
+		{
+			retVal = true;
+		}
+	}
+	return retVal;
+}
+
+bool
+CGroup::ClearNumberInColumn(int num, int col)
+{
+	bool retVal = false;
+	int cell;
+
+	for (int i=0; i<3; i++)
+	{
+		cell = col + 3*i;
+		if (m_CellArray[m_CellIndexes[cell]].ClearCouldBeFlag(num))
+		{
+			retVal = true;
+		}
+	}
+	return retVal;
+}
 
 CSudokuBoard::CSudokuBoard(const char *desc, int nBoardSize)
 {
@@ -637,33 +712,58 @@ CSudokuBoard::ClearCouldBeFlags()
 		for each number:
 			are there only 2 or 3 possibilities that are in a single row, column?
 				if so, clear any others of that number in the entire row / column
-
+*/
 	// pairwise elimination: looks for pairs in rows, cols that give info about the box
-	int pairloc;
-	for (int i=1; i<m_nBoardSize+1; i++)
+	int location;
+	for (int box=0; box<9; box++)
 	{
-		for (group=0; group<m_nBoardSize; group++)
+		for (int num=1; num<10; num++)
 		{
-			pairloc = m_rows[group].HasActionablePair(i);
-			if (pairloc)
+			location = m_boxes[box].BoxHasActionablePairOrTriad(num);
+			if (location)
 			{
-				if (m_boxes[3*(group/3)+pairloc-1].ProcessPairInRowOrCol(i, group, true)) // TODO
-				{
-					bChanged = true;
-				}
-			}
+				bool isColumn = false;
+				int otherBox1, otherBox2;
 
-			pairloc = m_cols[group].HasActionablePair(i);
-			if (pairloc)
-			{
-				if (m_boxes[3*(pairloc-1)+(group/3)].ProcessPairInRowOrCol(i, group, false)) // TODO
+				// TODO: clear the appropriate flags
+				if (location>3)
 				{
-					bChanged = true;
+					isColumn = true;
+					location -= 3;
 				}
+
+				if (isColumn)
+				{
+					// other boxes in same columns
+					otherBox1 = (box+3)%9;
+					otherBox2 = (box+6)%9;
+					// TODO: print the success here, if these change anything
+					m_boxes[otherBox1].ClearNumberInColumn(num, location-1);
+					m_boxes[otherBox2].ClearNumberInColumn(num, location-1);
+				}
+				else
+				{	// other boxes in same row
+					otherBox1 = (box/3)*3 +((box+1)%3);
+					otherBox2 = (box/3)*3 +((box+2)%3);
+					// TODO: print the success here, if these change anything
+					m_boxes[otherBox1].ClearNumberInRow(num, location-1);
+					m_boxes[otherBox2].ClearNumberInRow(num, location-1);
+				}
+/*
+				if (g_verbosity >= VERBOSE_WORDY)
+					printf("Found an actionable pair/triad in box %d: %ds in %s %d => clear boxes %d & %d\n",
+							box+1,
+							num,
+							(isColumn ? "column" : "row"),
+							location,
+							otherBox1 + 1,
+							otherBox2 + 1);
+*/
+
 			}
 		}
 	}
-*/
+
 
 	// look for "stacked pairs" in row or column
 	for (group=0; group<m_nBoardSize; group++)
