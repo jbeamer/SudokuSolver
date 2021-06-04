@@ -1,21 +1,16 @@
 import sys
 import os
-import array
+import itertools
 
 STATE_INCOMPLETE = 1
 STATE_INVALID    = 2
 STATE_SOLVED     = 3
 
-GROUPTYPE_ROW = 0
-GROUPTYPE_COL = 1
-GROUPTYPE_BOX = 2
-g_szGroupTypes = ["row", "column", "box"]
-
 VERBOSE_CRITICAL = 0
 VERBOSE_NORMAL   = 1
 VERBOSE_WORDY    = 2
 VERBOSE_EXTREME  = 3
-g_verbosity      = VERBOSE_WORDY
+g_verbosity      = VERBOSE_NORMAL
 
 class SudokuCell:
     def __init__(self, i, j):
@@ -24,6 +19,11 @@ class SudokuCell:
         # TODO: change this to an array of integers 1 thru 9:
         self.m_possibleValues = [i for i in range(1,10)]
         self.m_location = (i,j)
+
+    def __str__(self):
+        if self.m_value != 0:
+            return '{self.m_value}'.format(self=self)
+        return " "
 
     def SetValue(self, newvalue):
         if (self.m_value == newvalue):
@@ -41,12 +41,15 @@ class SudokuCell:
         return True
 
     def ClearFlag(self, value):
-        """clears the flag, returns if this is new info"""
+        """SudokuCell::ClearFlag: clears the flag, returns if this is new info"""
         if value == 0:
+            print(f"WARNING: trying to clear value 0")
             return 0
             
-        if (self.m_value == value):
-            # we don't allow flag to be cleared if this cell is this value
+        # we don't allow flag to be cleared if this cell is this value
+        # this actually happens a lot, as the parent group is lazy.
+        if self.m_value == value:
+            print(f"WARNING: trying to clear value for known cell")
             return 0
             
         if value in self.m_possibleValues:
@@ -58,19 +61,16 @@ class SudokuCell:
         return 0
 
     def UpdateValue(self):
-        """SudokuCell::UpdateValue: at the cell level, UpdateValue justs """
-        """checks to see if it can only be one possible value, and """
-        """ updates itself.  Returns 1 if a change is made, 0 if not """
-        possible_value = 0
-        nPossible = 0
-
+        """SudokuCell::UpdateValue: at the cell level, UpdateValue justs
+           checks to see if it can only be one possible value, and 
+           updates itself.  Returns 1 if a change is made, 0 if not """
         # if we don't know what value we are:
         if (self.m_value == 0):
             # if we only have one possibility, set us to the possibility
             if (len(self.m_possibleValues) == 1):
                 self.m_value = self.m_possibleValues[0]
                 if (g_verbosity >= VERBOSE_WORDY):
-                    print(f"Placed {self.m_value} in row {self.m_location[0] + 1} column {self.m_location[1] +1 } because it is the only option for that cell")
+                    print(f"Placed {self.m_value} in row {self.m_location[0] + 1} column {self.m_location[1] +1} because it is the only option for that cell")
                 return 1
 
         # no change made
@@ -89,18 +89,17 @@ class SudokuCell:
         if self.m_value == 0:
             # we are not a known value, print appropriate flag value if we can be this one, space otherwise:
             if index in self.m_possibleValues:
-                return chr((ord("0")+index))
+                return str(index)
         elif index == 5:
             # we know our value and we are in the cener of the 3x3, so return our value char
-            return chr((ord("0")+self.m_value))
+            return str(self.m_value)
         return " "
                     
 class SudokuGroup:
-    def __init__(self, cellArray, cellIndices, nType, index):
+    def __init__(self, cellArray, cellIndices, groupType, index):
         """ cellIndices is an array of (x,y) tuples """
-        self.m_nType  = nType
-        self.m_szType = g_szGroupTypes[self.m_nType]
-        self.m_nIndex = index
+        self.m_type   = groupType
+        self.m_index = index
         self.m_cells  = [cellArray[x][y] for (x,y) in cellIndices]    
 
     def SetValues(self, strValues):
@@ -112,22 +111,18 @@ class SudokuGroup:
             assert(value >= 0 and value <= 9)
             self.m_cells[i].SetValue(value)
 
-    def Print(self):
+    def __str__(self):
         """used for compact printing, just creates a row string like | 12|3 4|  5|"""
         groupString = "|"
         for i in range(9):
-            value = " "
-            if self.m_cells[i].m_value != 0:
-                value = self.m_cells[i].m_value
-            groupString = f"{groupString}{value}"
+            groupString = f"{groupString}{self.m_cells[i]}"
             if i % 3 == 2:
                 groupString += "|"
-        print(groupString)
+        return groupString
 
     def PrintSubrow(self, subrow):
         # this is called on a row, to print 1/3 of the flags for the entire row
         # subrow is an index 0-2
-        
         outString = "|||"
         for col in range(9):
             for flag in range(subrow*3,subrow*3+3):
@@ -138,27 +133,17 @@ class SudokuGroup:
         print(outString + "|")
                 
     def CurrentState(self):
-        bComplete = True
-        nNumbersFound = array.array('i', (0 for i in range(10)))
-        for cell in self.m_cells:
-            if (0 == cell.m_value):
-                # puzzle is not yet finished
-                bComplete = False
+        
+        # check to see if it ever can be filled:
+        possibles = [cell.NumPossible() for cell in self.m_cells]
+        if 0 in possibles:
+            return STATE_INVALID
 
-                # check to see if it ever can be filled:
-                if (0 == cell.NumPossible()):
-                    return STATE_INVALID
-            else:
-                nNumbersFound[cell.m_value] += 1
-
-        # check to see if there's more than one of any number (this can happen
-        # when a number is filled in two locations in a single DoFills
-        # iteration)
-        for i in range(1, 10):
-            if (nNumbersFound[i] > 1):
-                return STATE_INVALID
-
-        if (bComplete):
+        nNumbersFound = [cell.m_value for cell in self.m_cells]
+        if 0 in nNumbersFound:
+            return STATE_INCOMPLETE
+        
+        if (len(nNumbersFound) == 9):
             return STATE_SOLVED
 
         return STATE_INCOMPLETE
@@ -167,34 +152,53 @@ class SudokuGroup:
         # standard clearing: looks for numbers in row, col, group)
         nChanges = 0
         
+        filled_cells   = [c for c in self.m_cells if c.m_value != 0]
+        unfilled_cells = [c for c in self.m_cells if c.m_value == 0]
+        
         # a set of all the values that are already placed in this group
-        group_values = set([cell.m_value for cell in self.m_cells])
+        group_values = set([cell.m_value for cell in filled_cells])
         
         for val in group_values:
-            for cell in self.m_cells:
+            for cell in unfilled_cells:
                 nChanges += cell.ClearFlag(val)
                                 
-        return nChanges
-        
-    def DoStackedPairs(self):
-        """group::DoStackedPairs. when we find 2 cells in a group that only have 2 possibilities in common, 
+        return nChanges  
+
+    def FindStackedCells(self):
+        """SudokuGroup::FindStackedCells: when we find N cells in a group that only have N possibilities in common, 
            we can clear those possibilities in the entire group"""
-        # stacked pairs clearing
+
+        # for each group:
+            # reduce to just unfilled cells
+            # ^^ if more than 3, then for each combination of 3 cells
+                # calculate total possible within this set of 3
+                # if total possible < 3 then invalid
+                # if total possible > 3 then nothing to do (expected case)
+                # if total possible == 3 then this is a "stacked group" and we can clear these 3 possibilities in all other cells in the group
         nChanges = 0
-        for i in range(8): # 0 - 7
-            cell_1 = self.m_cells[i]
-            if (2 == cell_1.NumPossible()):
-                # this could be a stacked pair, check rest of group
-                for j in range(i+1, 9): # ( 1-8, 8)
-                    cell_2 = self.m_cells[j]
-                    if (2 == cell_2.NumPossible()) and (cell_1.m_possibleValues[0] == cell_2.m_possibleValues[0]) and (cell_1.m_possibleValues[1] == cell_2.m_possibleValues[1]):
-                       # YES!  We have found a stacked pair clear all flags for these values
-                       if (g_verbosity >= VERBOSE_EXTREME):
-                           print(f"Found a stacked pair ({cell_1.m_possibleValues[0]}{cell_1.m_possibleValues[1]}) in {self.m_szType} {self.m_nIndex}:")
-                       for c in range(9):
-                           if c != i and c != j:
-                               nChanges += self.m_cells[c].ClearFlag(cell_1.m_possibleValues[0])
-                               nChanges += self.m_cells[c].ClearFlag(cell_1.m_possibleValues[1])
+
+        # reduce to just unfilled cells
+        unfilled_cells = [c for c in self.m_cells if c.m_value == 0]
+        
+        # start with just pairs and triplets -- note I haven't found a puzzle that more than triplets helps to solve
+        for N in range(2,4):  
+
+            # can't have stacked triplet if we don't have at least 3 unfilled cells
+            if len(unfilled_cells) <= N:
+                return nChanges
+
+            # iterate through 
+            for s in itertools.combinations(unfilled_cells, N):
+                # s is now a set of N cells
+                # [c.m_possibleValues for c in s] # => e.g. [[1, 3, 5, 9], [3, 4, 6], [3, 4]]
+                all_possible = set([item for sublist in [c.m_possibleValues for c in s] for item in sublist]) # => e.g. [[1, 3, 5, 9], [3, 4, 6], [3, 4]]
+                if len(all_possible) == N:
+                    if (g_verbosity >= VERBOSE_WORDY):
+                        print(f"Found a stacked set of {N} cells in {self.m_type} {self.m_index+1}: {all_possible}")
+                    for cell in unfilled_cells:
+                        if not cell in s:
+                            for value in all_possible:
+                                nChanges += cell.ClearFlag(value)
         return nChanges    
 
     def UpdateValues(self):
@@ -220,7 +224,7 @@ class SudokuGroup:
                 if (self.m_cells[nCellWhereFound].SetValue(nNumberToLookFor)):
                     nChanges += 1
                     if (g_verbosity >= VERBOSE_WORDY):
-                        print(f"Placed {nNumberToLookFor} in row {self.m_cells[nCellWhereFound].m_location[0] + 1} column {self.m_cells[nCellWhereFound].m_location[1] + 1} because it is the only place a {nNumberToLookFor} can go in {self.m_szType} {self.m_nIndex + 1}")
+                        print(f"Placed {nNumberToLookFor} in row {self.m_cells[nCellWhereFound].m_location[0] + 1} column {self.m_cells[nCellWhereFound].m_location[1] + 1} because it is the only place a {nNumberToLookFor} can go in {self.m_type} {self.m_index+1}")
 
         return nChanges
 
@@ -238,10 +242,16 @@ class SudokuBoard:
         box_indices =  [[(x%3*3+y%3,x//3*3+y//3) for y in range(9)] for x in range(9)]
         
         # now we create our 3 groupings of nine cells each:
-        self.m_rows  = [SudokuGroup(self.m_cells, row_indices[i], GROUPTYPE_ROW, i) for i in range(9)]
-        self.m_cols  = [SudokuGroup(self.m_cells, col_indices[i], GROUPTYPE_COL, i) for i in range(9)]
-        self.m_boxes = [SudokuGroup(self.m_cells, box_indices[i], GROUPTYPE_BOX, i) for i in range(9)]
-        
+        self.m_rows  = [SudokuGroup(self.m_cells, row_indices[i], "row",    i) for i in range(9)]
+        self.m_cols  = [SudokuGroup(self.m_cells, col_indices[i], "column", i) for i in range(9)]
+        self.m_boxes = [SudokuGroup(self.m_cells, box_indices[i], "box",    i) for i in range(9)]
+
+    def SetState(self, parent):
+        for r in range(9):
+            for c in range(9):
+                self.m_cells[r][c].SetValue(parent.m_cells[r][c].m_value)
+        self.ClearFlags()
+
     def ReadInFile(self, filename="puzzle.txt"):
         """open the file, read the lines"""
         if not os.path.isfile(filename):
@@ -277,37 +287,44 @@ class SudokuBoard:
     def PrintCompact(self):
         print("|---|---|---|")
         for row in range(9):
-            self.m_rows[row].Print()
+            print(self.m_rows[row])
             if ((row % 3) == 2):
                 print("|---|---|---|")
         return
 
+    def SetValue(self, loc, val):
+        self.m_cells[loc[1]][loc[0]].SetValue(val)
+
     def Solve(self) -> int:
         """does all of the deterministic fills, loops until we're solved or stuck"""
         nChanges = self.ClearFlags()
-        nIterations = 0
-        
         while (nChanges > 0):
-            nIterations += 1
-            if (g_verbosity >= VERBOSE_EXTREME):
-                print(f"START loop {nIterations}:")
-                self.PrintWithFlags()
             nChanges = self.SolverLoop()
-            if (g_verbosity >= VERBOSE_EXTREME):
-                print(f"END loop {nIterations}: {nChanges} made")
             
         # check state (solved, invalid, or stuck) and act accordingly:
         if (self.CurrentState() == STATE_SOLVED):
-            print(f"\nBoard {self.m_szBoardDescription}:  SOLVED after {nIterations}  iterations")
+            print(f"\nBoard {self.m_szBoardDescription}:  SOLVED")
             self.PrintCompact()
+            return True
         elif (self.CurrentState() == STATE_INVALID):
-            # g_nBranchEndpoitsFound = g_nBranchEndpoitsFound + 1
-            print(f"\nBoard {self.m_szBoardDescription}: INVALID after {nIterations} iterations")
+            print(f"Board {self.m_szBoardDescription}: INVALID")
+            return False
         else:
-            print("No deterministic solution found.  Branching not yet implemented.")
-            # TODO: add branching code here
-            
-        return nIterations
+            print("No deterministic solution found.  Branching:")
+            sub_board_index = 0
+            for r in self.m_cells:
+                for c in r:
+                    if c.m_value == 0:
+                        for v in c.m_possibleValues:
+                            print(f"\nBranching with value {v} in row {c.m_location[0]+1} column {c.m_location[1]+1}")
+                            sub_board_index += 1
+                            sub_board = SudokuBoard(f"{self.m_szBoardDescription}.{sub_board_index}")
+                            # copy the current board status and set sub_board's cell c to this value:
+                            sub_board.SetState(self)
+                            sub_board.SetValue(c.m_location, v)
+                            if sub_board.Solve():
+                                return True
+        return False
 
     def UpdateValues(self) -> int:
         """goes through all rows, columns and boxes to Update Values"""
@@ -330,8 +347,8 @@ class SudokuBoard:
             # first go through and clear any flags
             nChanges += self.ClearFlags()
 
-            # then any stacked pairs we find
-            nChanges += self.DoStackedPairs()
+            # then any stacked cells we find
+            nChanges += self.FindStackedCells()
             
             # now go through and Update Values
             nChanges += self.UpdateValues()
@@ -340,7 +357,7 @@ class SudokuBoard:
 
     def CurrentState(self):
         bComplete = True
-        for group in range(0, 9):
+        for group in range(9):
             nState = self.m_rows[group].CurrentState()
             if (STATE_INVALID == nState):
                 # no need to look further
@@ -387,22 +404,18 @@ class SudokuBoard:
                 bChanged = True
 
         return bChanged
-    
-    def DoStackedPairs(self):
-        # standard clearing: looks for numbers in row, col, group)
+        
+    def FindStackedCells(self):
+        """SudokuBoard::FindStackedCells: find sets of N cells within the same grouping that only have N possibilities"""
         nChanges = 0
 
         for row in range(9):
-            nChanges += self.m_rows[row].DoStackedPairs()
+            nChanges += self.m_rows[row].FindStackedCells()
 
         for col in range(9):
-            nChanges += self.m_cols[col].DoStackedPairs()
+            nChanges += self.m_cols[col].FindStackedCells()
             
         for box in range(9):
-            nChanges += self.m_boxes[box].DoStackedPairs()
+            nChanges += self.m_boxes[box].FindStackedCells()
             
         return nChanges
-        
-    def FindCellToBranch(self):
-        print("WARNING: this board is now resorting to branching!")
-        return 0

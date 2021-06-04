@@ -14,15 +14,12 @@ USAGE = "Usage: python SudokuSolver.py [puzzle_filename]"
 
 
 def main():
-    print('Sudoku Solver v' + VERSION_STRING +
-          '\nBy Jonathan Beamer\n' +
-          COPYRIGHT_STRING)
+    print(f'Sudoku Solver v{VERSION_STRING}\nBy Jonathan Beamer\n{COPYRIGHT_STRING}')
 
     if len(sys.argv) < 2:
         print(USAGE)
         sys.exit(1)
 
-#   TODO -- board size should be set by the puzzle file read in
     board = SudokuBoard.SudokuBoard("1")
     if (board.ReadInFile(sys.argv[1])):
         print(USAGE)
